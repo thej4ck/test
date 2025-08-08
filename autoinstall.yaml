@@ -1,0 +1,80 @@
+#cloud-config
+autoinstall:
+  version: 1
+  locale: en_US
+  keyboard:
+    layout: us
+  storage:
+    layout:
+      name: custom
+    config:
+      - id: disk0
+        type: disk
+        match:
+          size: largest
+        ptable: gpt
+        wipe: superblock-recursive
+        preserve: false
+        name: ''
+        grub_device: true
+      - id: part1
+        type: partition
+        size: 512M
+        flag: boot
+        device: disk0
+      - id: part2
+        type: partition
+        size: 10G
+        device: disk0
+      - id: part3
+        type: partition
+        size: -1
+        device: disk0
+      - id: fs1
+        type: format
+        fstype: fat32
+        volume: part1
+      - id: fs2
+        type: format
+        fstype: swap
+        volume: part2
+      - id: fs3
+        type: format
+        fstype: btrfs
+        volume: part3
+      - id: subvol_root
+        type: mount
+        device: fs3
+        path: /
+        options: "subvol=@,compress=zstd,ssd,space_cache=v2"
+      - id: subvol_home
+        type: mount
+        device: fs3
+        path: /home
+        options: "subvol=@home,compress=zstd,ssd,space_cache=v2"
+      - id: subvol_log
+        type: mount
+        device: fs3
+        path: /var/log
+        options: "subvol=@log,compress=zstd,ssd,space_cache=v2"
+      - id: subvol_snapshots
+        type: mount
+        device: fs3
+        path: /.snapshots
+        options: "subvol=@snapshots,compress=zstd,ssd,space_cache=v2"
+
+  packages:
+    - btrfs-progs
+    - snapper
+
+  late-commands:
+    # Creazione subvolumi Btrfs
+    - curtin in-target --target=/target -- bash -c "btrfs subvolume create /target/@"
+    - curtin in-target --target=/target -- bash -c "btrfs subvolume create /target/@home"
+    - curtin in-target --target=/target -- bash -c "btrfs subvolume create /target/@log"
+    - curtin in-target --target=/target -- bash -c "btrfs subvolume create /target/@snapshots"
+
+    # Configurazione snapper
+    - curtin in-target --target=/target -- snapper -c root create-config /
+    - curtin in-target --target=/target -- sed -i 's/^TIMELINE_CREATE=.*/TIMELINE_CREATE=\"no\"/' /etc/snapper/configs/root
+    - curtin in-target --target=/target -- sed -i 's/^NUMBER_LIMIT=.*/NUMBER_LIMIT="50"/' /etc/snapper/configs/root
